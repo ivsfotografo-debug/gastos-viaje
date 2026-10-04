@@ -14,6 +14,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="fonts.css">
 <script src="xlsx.full.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --bg:#E9EDF1; --surface:#FFFFFF; --ink:#12202C; --muted:#5B6B79; --line:#D3DAE1;
@@ -315,7 +317,7 @@ function reportHTML(p, t) {
     </div>
     ${p.closed ? `
       <button class="btn" data-act="xlsx">Descargar planilla Excel</button>
-      <button class="btn sec" data-act="html">Descargar informe con fotos</button>
+      <button class="btn sec" data-act="pdf">Descargar informe en PDF</button>
       <button class="btn sec" data-act="reopen">Reabrir proyecto</button>
       <button class="btn sec" data-act="newproj">Crear un proyecto nuevo</button>` : `
       <div class="note" style="margin-bottom:10px">Cuando termine el proyecto, ciérralo para generar la rendición con los gastos ordenados por fecha y hora.</div>
@@ -486,7 +488,7 @@ function openClosed() {
     <div class="kv"><span>Pagado con tarjeta (informativo)</span><b style="color:var(--card)">${clp(t.card)}</b></div></div>
     <div class="note" style="margin-bottom:12px">La rendición queda ordenada por fecha y hora.</div>
     <button class="btn" data-act="xlsx">Descargar planilla Excel</button>
-    <button class="btn sec" data-act="html">Descargar informe con fotos</button>`);
+    <button class="btn sec" data-act="pdf">Descargar informe en PDF</button>`);
 }
 const chron = pid => S.expenses.filter(e => e.projectId === pid)
   .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.time || '') < (b.time || '') ? -1 : (a.time || '') > (b.time || '') ? 1 : a.createdAt - b.createdAt);
@@ -494,7 +496,7 @@ const chron = pid => S.expenses.filter(e => e.projectId === pid)
 /* ---------- exportación ---------- */
 async function saveFile(filename, data) {
   const ext = filename.split('.').pop().toLowerCase();
-  const types = {xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', html:'text/html', json:'application/json', csv:'text/csv'};
+  const types = {pdf:'application/pdf', xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', html:'text/html', json:'application/json', csv:'text/csv'};
   const blob = data instanceof Blob ? data : new Blob([data], {type: (types[ext] || 'application/octet-stream') + ';charset=utf-8'});
   const cap = window.Capacitor;
   if (cap && cap.isNativePlatform && cap.isNativePlatform()) {
@@ -604,6 +606,94 @@ ${withPh.length ? `<h2>Comprobantes</h2><div class="fotos">${withPh.map(e => `<f
 </body></html>`;
   saveFile('informe_' + slug(p.name) + '_' + stamp() + '.html', html);
 }
+
+function jpegSize(dataUrl) {
+  try {
+    const bin = atob(dataUrl.split(',')[1]);
+    let i = 2;
+    while (i < bin.length) {
+      if (bin.charCodeAt(i) !== 0xFF) { i++; continue; }
+      const m = bin.charCodeAt(i + 1);
+      if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+        return {h: (bin.charCodeAt(i + 5) << 8) | bin.charCodeAt(i + 6), w: (bin.charCodeAt(i + 7) << 8) | bin.charCodeAt(i + 8)};
+      }
+      i += 2 + ((bin.charCodeAt(i + 2) << 8) | bin.charCodeAt(i + 3));
+    }
+  } catch (e) {}
+  return {w: 4, h: 3};
+}
+function exportPdf() {
+  if (!window.jspdf) return toast('No se pudo generar el PDF');
+  const p = cur(), ex = chron(p.id), t = totals(p.id), recv = p.received || 0;
+  const ef = ex.filter(e => e.method === 'efectivo'), tj = ex.filter(e => e.method === 'tarjeta');
+  const doc = new window.jspdf.jsPDF({unit: 'mm', format: 'a4'});
+  const M = 14, W = 210, H = 297, green = [10, 107, 77], blue = [45, 88, 166];
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(18, 32, 44);
+  doc.text('Rendición de gastos de viaje', M, 18);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(91, 107, 121);
+  doc.text('Proyecto: ' + p.name, M, 25);
+  let sub = ex.length ? 'Período: ' + range(ex) : '';
+  if (p.closedAt) sub += (sub ? '    ' : '') + 'Cierre: ' + fmtShort(p.closedAt);
+  if (sub) doc.text(sub, M, 30);
+
+  doc.autoTable({
+    startY: 35, theme: 'grid', styles: {fontSize: 10, cellPadding: 2.2, textColor: [18, 32, 44]},
+    body: [
+      ['Total gastado en efectivo (a rendir)', clp(t.cash)],
+      ['Efectivo recibido', clp(recv)],
+      ['Saldo (recibido menos gastado)', clp(recv - t.cash)],
+      ['Pagado con tarjeta de la empresa (informativo, no se rinde)', clp(t.card)]
+    ],
+    columnStyles: {0: {cellWidth: 130}, 1: {halign: 'right', fontStyle: 'bold'}},
+    didParseCell: d => { if (d.row.index === 0) { d.cell.styles.fillColor = [221, 241, 232]; d.cell.styles.fontStyle = 'bold'; } },
+    margin: {left: M, right: M}
+  });
+
+  const table = (title, list, total, label, color) => {
+    let y = doc.lastAutoTable.finalY + 10;
+    if (y > H - 50) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(18, 32, 44);
+    doc.text(title, M, y);
+    doc.autoTable({
+      startY: y + 3, theme: 'grid',
+      head: [['N°', 'Fecha', 'Hora', 'Tipo', 'Detalle', 'Monto']],
+      body: list.length ? list.map((e, i) => [i + 1, fmtShort(e.date), e.time || '', e.category, e.desc || '', clp(e.amount)]) : [['', '', '', '', 'Sin gastos', '']],
+      foot: [[{content: label, colSpan: 5, styles: {halign: 'right'}}, clp(total)]],
+      styles: {fontSize: 9, cellPadding: 1.8, textColor: [18, 32, 44]},
+      headStyles: {fillColor: color, textColor: 255},
+      footStyles: {fillColor: [238, 242, 245], textColor: [18, 32, 44], fontStyle: 'bold'},
+      columnStyles: {0: {cellWidth: 10}, 1: {cellWidth: 24}, 2: {cellWidth: 14}, 3: {cellWidth: 30}, 5: {halign: 'right', cellWidth: 26}},
+      margin: {left: M, right: M}
+    });
+  };
+  table('Gastos en efectivo (a rendir)', ef, t.cash, 'Total a rendir', green);
+  table('Pagos con tarjeta de la empresa (informativo)', tj, t.card, 'Total con tarjeta', blue);
+
+  const withPh = ex.filter(e => e.photo);
+  if (withPh.length) {
+    const cw = (W - 2 * M - 8) / 2, ch = 112, capH = 9;
+    withPh.forEach((e, i) => {
+      if (i % 4 === 0) {
+        doc.addPage();
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(18, 32, 44);
+        doc.text('Comprobantes', M, 16);
+      }
+      const k = i % 4, x = M + (k % 2) * (cw + 8), y = 22 + Math.floor(k / 2) * (ch + capH + 6);
+      const sz = jpegSize(e.photo), r = Math.min(cw / sz.w, ch / sz.h), w = sz.w * r, h = sz.h * r;
+      doc.setDrawColor(201, 209, 217); doc.rect(x, y, cw, ch);
+      doc.addImage(e.photo, 'JPEG', x + (cw - w) / 2, y + (ch - h) / 2, w, h);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(91, 107, 121);
+      const cap = fmtShort(e.date) + ' ' + (e.time || '') + ' · ' + e.category + ' · ' + clp(e.amount) + ' · ' + (e.method === 'efectivo' ? 'Efectivo' : 'Tarjeta empresa');
+      doc.text(doc.splitTextToSize(cap, cw), x, y + ch + 4.5);
+    });
+  }
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120, 130, 140);
+    doc.text('Página ' + i + ' de ' + n, W - M, H - 8, {align: 'right'});
+  }
+  saveFile('informe_' + slug(p.name) + '_' + stamp() + '.pdf', doc.output('blob'));
+}
 function backup() {
   const data = JSON.stringify({version: 1, projects: S.projects, expenses: S.expenses});
   saveFile('respaldo_gastos_viaje_' + stamp() + '.json', data);
@@ -671,7 +761,7 @@ document.addEventListener('click', async ev => {
     case 'reopen': { const p = cur(); p.closed = false; p.closedAt = null; await dbPut('projects', p); render(); toast('Proyecto reabierto'); break; }
     case 'newproj': openProjects(); break;
     case 'xlsx': exportXlsx(); break;
-    case 'html': exportHtml(); break;
+    case 'pdf': exportPdf(); break;
     case 'backup': backup(); break;
     case 'restore': { const r = $('#rf'); r.onchange = () => { if (r.files[0]) restoreFrom(r.files[0]); }; r.click(); break; }
   }
