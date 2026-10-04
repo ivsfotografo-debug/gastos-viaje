@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A6B4D">
+<title>Gastos de viaje</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Gastos viaje">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="fonts.css">
+<script src="xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#E9EDF1; --surface:#FFFFFF; --ink:#12202C; --muted:#5B6B79; --line:#D3DAE1;
+  --cash:#0A6B4D; --on-cash:#FFFFFF; --cash-soft:#DDF1E8;
+  --card:#2D58A6; --card-soft:#E1EAF8; --danger:#B3261E; --shadow:rgba(18,32,44,.12);
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-num:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F161C; --surface:#18222B; --ink:#E8EEF3; --muted:#9AABB9; --line:#2A3743;
+    --cash:#4CC38F; --on-cash:#06241A; --cash-soft:#16342A;
+    --card:#7FA6F0; --card-soft:#1B2B47; --danger:#F2877F; --shadow:rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F161C; --surface:#18222B; --ink:#E8EEF3; --muted:#9AABB9; --line:#2A3743;
+  --cash:#4CC38F; --on-cash:#06241A; --cash-soft:#16342A;
+  --card:#7FA6F0; --card-soft:#1B2B47; --danger:#F2877F; --shadow:rgba(0,0,0,.4);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);-webkit-text-size-adjust:100%}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.35}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0;text-align:inherit}
+:focus-visible{outline:3px solid var(--card);outline-offset:2px}
+#app{max-width:560px;margin:0 auto;padding:12px 14px 120px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 2px 12px}
+.proj{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600;font-size:19px}
+.proj span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj svg{flex:none}
+.small-btn{font-size:14px;font-weight:600;color:var(--muted);padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+
+.sign{position:relative;background:var(--cash);color:var(--on-cash);border-radius:16px;padding:18px 20px 16px;box-shadow:0 2px 10px var(--shadow)}
+.sign::after{content:"";position:absolute;inset:6px;border:2px solid currentColor;border-radius:11px;opacity:.55;pointer-events:none}
+.sign-label{font-weight:600;font-size:16px;opacity:.95}
+.sign-amt{font-family:var(--f-num);font-weight:700;font-size:58px;line-height:1.05;letter-spacing:.5px}
+.sign-sub{font-size:14px;opacity:.9}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.mini{display:block;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+.mini span{display:block;font-size:13px;color:var(--muted);font-weight:500}
+.mini b{display:block;font-family:var(--f-num);font-size:28px;font-weight:700;line-height:1.1;margin-top:2px}
+.mini small{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
+.mini.tj{background:var(--card-soft);border-color:transparent}
+.mini.tj b{color:var(--card)}
+
+.tabs{display:flex;gap:6px;margin:16px 0 10px;border-bottom:1px solid var(--line)}
+.tab{padding:10px 14px;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--cash)}
+.filters{display:flex;gap:8px;margin:2px 0 8px;overflow-x:auto}
+.chip{flex:none;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-weight:500;font-size:15px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+.day{font-size:13.5px;font-weight:600;color:var(--muted);margin:14px 2px 6px;text-transform:none}
+.row{display:flex;align-items:center;gap:12px;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:7px}
+.th{flex:none;width:46px;height:46px;border-radius:9px;object-fit:cover;background:var(--line)}
+.th-ph{flex:none;width:46px;height:46px;border-radius:9px;border:1.5px dashed var(--line);display:grid;place-items:center;font-family:var(--f-num);font-weight:700;font-size:20px;color:var(--muted)}
+.row-main{flex:1;min-width:0}
+.row-t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-s{font-size:13.5px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.badge{font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px}
+.badge.ef{background:var(--cash-soft);color:var(--cash)}
+.badge.tj{background:var(--card-soft);color:var(--card)}
+.amt{font-family:var(--f-num);font-weight:700;font-size:24px;white-space:nowrap}
+.amt.tj{color:var(--card);font-weight:600}
+.empty{padding:30px 12px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-size:18px;margin-bottom:4px}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.panel h3{margin:0 0 8px;font-size:16px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:0}
+.kv b{font-family:var(--f-num);font-size:20px}
+.note{font-size:14px;color:var(--muted)}
+.btn{display:block;width:100%;text-align:center;font-weight:700;font-size:17px;padding:14px;border-radius:12px;background:var(--cash);color:var(--on-cash)}
+.btn.sec{background:var(--surface);color:var(--ink);border:1.5px solid var(--ink)}
+.btn.dng{background:var(--surface);color:var(--danger);border:1.5px solid var(--danger)}
+.btn + .btn{margin-top:10px}
+
+#fab{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:5;display:flex;align-items:center;gap:8px;background:var(--ink);color:var(--bg);font-weight:700;font-size:18px;padding:15px 26px;border-radius:999px;box-shadow:0 6px 18px var(--shadow)}
+#fab[hidden]{display:none}
+
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10;display:none}
+#ov.on{display:block}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;max-width:560px;margin:0 auto;background:var(--surface);border-radius:20px 20px 0 0;max-height:92dvh;max-height:92vh;overflow-y:auto;padding:16px 16px calc(18px + env(safe-area-inset-bottom,0px));display:none}
+#sheet.on{display:block}
+.sh-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.sh-head h2{margin:0;font-size:20px}
+.x{font-size:15px;font-weight:600;color:var(--muted);padding:8px}
+label.f{display:block;font-size:14px;font-weight:600;color:var(--muted);margin:14px 0 6px}
+.inp{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);font-size:17px}
+.inp.big{font-family:var(--f-num);font-size:38px;font-weight:700;padding:8px 12px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg button{padding:14px 8px;border-radius:12px;border:2px solid var(--line);font-weight:700;text-align:center;line-height:1.15}
+.seg button small{display:block;font-weight:500;font-size:12.5px;color:var(--muted)}
+.seg button[aria-pressed="true"].ef{border-color:var(--cash);background:var(--cash-soft);color:var(--cash)}
+.seg button[aria-pressed="true"].tj{border-color:var(--card);background:var(--card-soft);color:var(--card)}
+.cats{display:flex;flex-wrap:wrap;gap:8px}
+.photo-prev{position:relative}
+.photo-prev img{width:100%;max-height:260px;object-fit:contain;background:var(--bg);border-radius:10px;border:1px solid var(--line)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.err{color:var(--danger);font-weight:600;font-size:14.5px;margin-top:10px}
+.hint{font-size:14px;padding:10px 12px;border-radius:10px;background:var(--card-soft);color:var(--card);margin-top:12px;font-weight:500}
+.plist .row{margin-bottom:8px}
+.plist .row[aria-current="true"]{border:2px solid var(--cash)}
+
+#viewer{position:fixed;inset:0;z-index:20;background:#000;display:none;align-items:center;justify-content:center;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+#viewer.on{display:flex}
+#viewer img{max-width:100%;max-height:100%}
+#viewer button{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:12px;background:rgba(255,255,255,.9);color:#000;font-weight:700;padding:10px 14px;border-radius:10px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--ink);color:var(--bg);padding:11px 16px;border-radius:12px;font-weight:600;max-width:90%;display:none;text-align:center}
+#toast.on{display:block}
+@media (prefers-reduced-motion: no-preference){
+  #sheet.on{animation:up .18s ease-out}
+  @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<button id="fab" data-act="new" hidden>
+  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+  Agregar gasto
+</button>
+<div id="ov" data-act="close"></div>
+<div id="sheet" role="dialog" aria-modal="true"></div>
+<div id="viewer"><button data-act="closeviewer">Cerrar</button><img alt="Comprobante"></div>
+<div id="toast" role="status"></div>
+
+<script>
+/* ---------- utilidades ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clp = n => '$' + Math.round(n || 0).toLocaleString('es-CL');
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const pad = n => String(n).padStart(2, '0');
+const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+const nowTime = () => { const d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const fmtDay = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('es-CL', {weekday:'long', day:'numeric', month:'long'}); };
+const fmtShort = s => { const [y, m, d] = s.split('-'); return d + '-' + m + '-' + y; };
+const slug = s => (s || 'proyecto').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'proyecto';
+const stamp = () => todayStr().replace(/-/g, '_');
+const CATS = ['Peaje', 'Combustible', 'Alimentación', 'Alojamiento', 'Estacionamiento', 'Transporte', 'Otro'];
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2800);
+}
+
+/* ---------- almacenamiento (IndexedDB) ---------- */
+let idb = null;
+const S = { projects: [], expenses: [], currentId: null, tab: 'gastos', filter: 'todos', lastMethod: 'efectivo', storageOk: true };
+
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('gastos_viaje', 1);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      d.createObjectStore('projects', {keyPath: 'id'});
+      d.createObjectStore('expenses', {keyPath: 'id'});
+      d.createObjectStore('meta', {keyPath: 'k'});
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function dbDo(store, mode, fn) {
+  return new Promise((res, rej) => {
+    if (!idb) return res([]);
+    const t = idb.transaction(store, mode);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => res(req ? req.result : undefined);
+    t.onerror = () => rej(t.error);
+    t.onabort = () => rej(t.error);
+  });
+}
+const dbPut = (store, obj) => dbDo(store, 'readwrite', s => s.put(obj)).catch(() => { S.storageOk = false; });
+const dbDel = (store, id) => dbDo(store, 'readwrite', s => s.delete(id)).catch(() => { S.storageOk = false; });
+const dbAll = store => dbDo(store, 'readonly', s => s.getAll());
+
+async function init() {
+  try {
+    idb = await openDB();
+    S.projects = await dbAll('projects');
+    S.expenses = await dbAll('expenses');
+    const meta = await dbDo('meta', 'readonly', s => s.get('current'));
+    S.currentId = meta && S.projects.find(p => p.id === meta.v) ? meta.v : (S.projects[0] ? S.projects[0].id : null);
+  } catch (e) {
+    S.storageOk = false;
+  }
+  const last = [...S.expenses].sort((a, b) => b.createdAt - a.createdAt)[0];
+  if (last) S.lastMethod = last.method;
+  render();
+}
+const setCurrent = id => { S.currentId = id; dbPut('meta', {k: 'current', v: id}); };
+
+/* ---------- datos derivados ---------- */
+const cur = () => S.projects.find(p => p.id === S.currentId);
+const projExp = pid => S.expenses.filter(e => e.projectId === pid)
+  .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt);
+function totals(pid) {
+  let cash = 0, card = 0, nCash = 0, nCard = 0; const cat = {};
+  for (const e of S.expenses) {
+    if (e.projectId !== pid) continue;
+    if (e.method === 'efectivo') { cash += e.amount; nCash++; cat[e.category] = (cat[e.category] || 0) + e.amount; }
+    else { card += e.amount; nCard++; }
+  }
+  return {cash, card, nCash, nCard, cat};
+}
+
+/* ---------- vistas ---------- */
+function render() {
+  const app = $('#app'), p = cur();
+  if (!p) {
+    $('#fab').hidden = true;
+    app.innerHTML = `
+      <div class="empty" style="padding-top:60px"><b>Partamos con tu primer viaje</b>
+      Crea un proyecto para ir anotando peajes y otros gastos.</div>
+      <div class="panel">
+        <label class="f" for="np0" style="margin-top:0">Nombre del proyecto o viaje</label>
+        <input id="np0" class="inp" placeholder="Ej: Visita a terreno, octubre" autocomplete="off">
+        <div style="height:12px"></div>
+        <button class="btn" data-act="createproj0">Crear proyecto</button>
+      </div>${storageWarn()}`;
+    return;
+  }
+  const t = totals(p.id), recv = p.received || 0;
+  let saldo = 'Toca para anotar';
+  if (recv > 0) { const d = recv - t.cash; saldo = d >= 0 ? 'Por devolver ' + clp(d) : 'Te deben ' + clp(-d); }
+  $('#fab').hidden = !!p.closed;
+  app.innerHTML = `
+    <div class="top">
+      <button class="proj" data-act="projects" aria-label="Cambiar de proyecto">
+        <span>${esc(p.name)}</span>
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    ${p.closed ? `<div class="hint" style="margin:0 0 10px">Proyecto cerrado el ${esc(fmtShort(p.closedAt))}. Ya no se pueden agregar gastos.</div>` : ''}
+    <section class="sign" aria-label="Total a rendir">
+      <div class="sign-label">A rendir (efectivo)</div>
+      <div class="sign-amt">${clp(t.cash)}</div>
+      <div class="sign-sub">${t.nCash} ${t.nCash === 1 ? 'gasto' : 'gastos'} en efectivo</div>
+    </section>
+    <div class="pair">
+      <div class="mini tj"><span>Tarjeta de la empresa</span><b>${clp(t.card)}</b><small>Solo informativo, no se rinde</small></div>
+      <button class="mini" data-act="${p.closed ? 'none' : 'recv'}"><span>Efectivo recibido</span><b>${clp(recv)}</b><small>${esc(saldo)}</small></button>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-act="tab" data-v="gastos" aria-selected="${S.tab === 'gastos'}">Gastos</button>
+      <button class="tab" role="tab" data-act="tab" data-v="informe" aria-selected="${S.tab === 'informe'}">Informe</button>
+    </div>
+    ${S.tab === 'gastos' ? listHTML(p) : reportHTML(p, t)}
+    ${storageWarn()}`;
+}
+const storageWarn = () => S.storageOk ? '' :
+  '<div class="hint" style="background:var(--cash-soft);color:var(--danger)">No se pudo usar el almacenamiento del teléfono. Lo que anotes se perderá al cerrar la página. Descarga el informe antes de salir.</div>';
+
+function listHTML(p) {
+  let ex = projExp(p.id);
+  const all = ex.length;
+  if (S.filter === 'efectivo') ex = ex.filter(e => e.method === 'efectivo');
+  if (S.filter === 'tarjeta') ex = ex.filter(e => e.method === 'tarjeta');
+  const chips = [['todos', 'Todos'], ['efectivo', 'Efectivo'], ['tarjeta', 'Tarjeta empresa']]
+    .map(([v, l]) => `<button class="chip" data-act="filter" data-v="${v}" aria-pressed="${S.filter === v}">${l}</button>`).join('');
+  if (!all) return `<div class="empty"><b>Aún no hay gastos</b>Toca “Agregar gasto” cuando pagues un peaje o cualquier otra cosa.</div>`;
+  let html = `<div class="filters">${chips}</div>`;
+  if (!ex.length) return html + `<div class="empty">No hay gastos en este filtro.</div>`;
+  let day = '';
+  for (const e of ex) {
+    if (e.date !== day) { day = e.date; html += `<div class="day">${esc(fmtDay(day))}</div>`; }
+    const isCash = e.method === 'efectivo';
+    html += `<div class="row" role="button" tabindex="0" data-act="edit" data-id="${e.id}">
+      ${e.photo ? `<img class="th" src="${e.photo}" alt="Comprobante" data-act="photo" data-id="${e.id}">` : `<div class="th-ph">${esc(e.category[0])}</div>`}
+      <div class="row-main">
+        <div class="row-t">${esc(e.category)}${e.desc ? ' · ' + esc(e.desc) : ''}</div>
+        <div class="row-s">${e.time ? `<span>${esc(e.time)}</span>` : ''}<span class="badge ${isCash ? 'ef' : 'tj'}">${isCash ? 'Efectivo' : 'Tarjeta empresa'}</span>${e.photo ? '' : '<span>Sin foto</span>'}</div>
+      </div>
+      <div class="amt ${isCash ? '' : 'tj'}">${clp(e.amount)}</div>
+    </div>`;
+  }
+  return html;
+}
+
+let closeArmed = false;
+function reportHTML(p, t) {
+  const n = projExp(p.id).length;
+  const cats = Object.entries(t.cat).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><b>${clp(v)}</b></div>`).join('') || '<div class="note">Todavía no hay gastos en efectivo.</div>';
+  return `
+    <div class="panel"><h3>Lo que se rinde, por categoría</h3>${cats}
+      <div class="kv" style="margin-top:4px"><span><b style="font-family:var(--f-body);font-size:16px">Total a rendir</b></span><b style="color:var(--cash)">${clp(t.cash)}</b></div>
+    </div>
+    <div class="panel"><h3>Pagado con tarjeta de la empresa</h3>
+      <div class="kv"><span>${t.nCard} ${t.nCard === 1 ? 'gasto' : 'gastos'}</span><b style="color:var(--card)">${clp(t.card)}</b></div>
+      <div class="note">Aparece en la planilla como dato informativo y no suma a lo que se rinde.</div>
+    </div>
+    ${p.closed ? `
+      <button class="btn" data-act="xlsx">Descargar planilla Excel</button>
+      <button class="btn sec" data-act="html">Descargar informe con fotos</button>
+      <button class="btn sec" data-act="reopen">Reabrir proyecto</button>
+      <button class="btn sec" data-act="newproj">Crear un proyecto nuevo</button>` : `
+      <div class="note" style="margin-bottom:10px">Cuando termine el proyecto, ciérralo para generar la rendición con los gastos ordenados por fecha y hora.</div>
+      <button class="btn" data-act="closeproj" ${n ? '' : 'disabled style="opacity:.5"'}>${closeArmed ? 'Toca otra vez para cerrar' : 'Cerrar proyecto y generar informe'}</button>`}
+    <div class="panel" style="margin-top:16px"><h3>Respaldo</h3>
+      <div class="note" style="margin-bottom:10px">Los datos quedan guardados en este teléfono. Si borras los datos del navegador, se pierden. Descarga un respaldo de vez en cuando.</div>
+      <button class="btn sec" data-act="backup">Descargar respaldo</button>
+      <button class="btn sec" data-act="restore">Cargar respaldo</button>
+      <input type="file" id="rf" accept=".json,application/json" hidden>
+    </div>`;
+}
+
+/* ---------- hoja inferior ---------- */
+function openSheet(title, body) {
+  $('#sheet').innerHTML = `<div class="sh-head"><h2>${esc(title)}</h2><button class="x" data-act="close">Cerrar</button></div>${body}`;
+  $('#sheet').classList.add('on'); $('#ov').classList.add('on');
+  $('#sheet').scrollTop = 0;
+}
+function closeSheet() { $('#sheet').classList.remove('on'); $('#ov').classList.remove('on'); $('#sheet').innerHTML = ''; draft = null; }
+
+/* ---------- formulario de gasto ---------- */
+let draft = null, isNew = true, delArmed = false;
+
+function openExpense(id) {
+  const e = id ? S.expenses.find(x => x.id === id) : null;
+  isNew = !e; delArmed = false;
+  draft = e ? {...e, amount: String(e.amount)} :
+    {id: uid(), projectId: S.currentId, date: todayStr(), time: nowTime(), category: 'Peaje', desc: '', amount: '', method: S.lastMethod || 'efectivo', photo: null, createdAt: Date.now()};
+  renderForm();
+}
+function renderForm(err) {
+  const d = draft;
+  const amt = d.amount ? Number(d.amount).toLocaleString('es-CL') : '';
+  const body = `
+    <label class="f" style="margin-top:0">¿Cómo se pagó?</label>
+    <div class="seg">
+      <button class="ef" data-act="method" data-v="efectivo" aria-pressed="${d.method === 'efectivo'}">Efectivo<small>Se rinde</small></button>
+      <button class="tj" data-act="method" data-v="tarjeta" aria-pressed="${d.method === 'tarjeta'}">Tarjeta de la empresa<small>Solo informativo</small></button>
+    </div>
+    ${d.method === 'tarjeta' ? '<div class="hint">Se anota para tener el registro, pero no suma a lo que debes rendir.</div>' : ''}
+    <label class="f">Tipo de gasto</label>
+    <div class="cats">${CATS.map(c => `<button class="chip" data-act="cat" data-v="${c}" aria-pressed="${d.category === c}">${c}</button>`).join('')}</div>
+    <label class="f" for="f-amt">Monto (pesos)</label>
+    <input id="f-amt" class="inp big" inputmode="numeric" autocomplete="off" placeholder="$0" value="${amt ? '$' + amt : ''}">
+    <label class="f" for="f-desc">Detalle (opcional)</label>
+    <input id="f-desc" class="inp" placeholder="Ej: Peaje Lo Prado, Ruta 68" value="${esc(d.desc)}" autocomplete="off">
+    ${isNew ? `<div class="note" style="margin-top:12px">Se registra con la fecha y hora de ahora: ${esc(fmtShort(d.date))} a las ${esc(d.time)}</div>` :
+      `<label class="f" for="f-date">Fecha (solo para corregir)</label><input id="f-date" type="date" class="inp" value="${d.date}">`}
+    <label class="f">Comprobante</label>
+    ${d.photo ? `<div class="photo-prev"><img src="${d.photo}" alt="Comprobante"></div>
+      <div style="height:8px"></div><button class="btn sec" data-act="rmphoto">Quitar foto</button>` :
+      `<div class="two">
+        <button class="btn sec" data-act="cam">Tomar foto</button>
+        <button class="btn sec" data-act="gal" style="margin-top:0">Elegir de galería</button>
+      </div>`}
+    <input type="file" id="in-cam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="in-gal" accept="image/*" hidden>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div style="height:16px"></div>
+    <button class="btn" data-act="save">${isNew ? 'Guardar gasto' : 'Guardar cambios'}</button>
+    ${isNew ? '' : `<button class="btn dng" data-act="del">${delArmed ? 'Toca otra vez para borrar' : 'Borrar gasto'}</button>`}`;
+  openSheet(isNew ? 'Nuevo gasto' : 'Editar gasto', body);
+  bindForm();
+}
+function bindForm() {
+  const a = $('#f-amt');
+  a.addEventListener('input', () => {
+    const digits = a.value.replace(/\D/g, '').slice(0, 9);
+    draft.amount = digits;
+    a.value = digits ? '$' + Number(digits).toLocaleString('es-CL') : '';
+  });
+  const fd = $('#f-date'); if (fd) fd.addEventListener('input', ev => { draft.date = ev.target.value; });
+  $('#f-desc').addEventListener('input', ev => { draft.desc = ev.target.value; });
+  for (const id of ['in-cam', 'in-gal']) {
+    $('#' + id).addEventListener('change', async ev => {
+      const f = ev.target.files && ev.target.files[0];
+      if (!f) return;
+      try { draft.photo = await compress(f); renderForm(); }
+      catch (e) { renderForm('No se pudo leer la foto. Intenta de nuevo.'); }
+    });
+  }
+}
+function compress(file, max = 1280, q = 0.72) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const r = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', q));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('img')); };
+    img.src = url;
+  });
+}
+async function saveExpense() {
+  const amount = parseInt(draft.amount || '0', 10);
+  if (!amount) return renderForm('Ingresa el monto del gasto.');
+  if (!draft.date) return renderForm('Elige la fecha.');
+  const e = {...draft, amount, desc: (draft.desc || '').trim()};
+  const i = S.expenses.findIndex(x => x.id === e.id);
+  if (i >= 0) S.expenses[i] = e; else S.expenses.push(e);
+  S.lastMethod = e.method;
+  await dbPut('expenses', e);
+  closeSheet(); render(); toast('Gasto guardado');
+}
+
+/* ---------- proyectos ---------- */
+function openProjects() {
+  const p = cur();
+  const list = S.projects.map(x => `<div class="row" role="button" tabindex="0" data-act="pick" data-id="${x.id}" ${x.id === S.currentId ? 'aria-current="true"' : ''}>
+    <div class="row-main"><div class="row-t">${esc(x.name)}</div><div class="row-s">${S.expenses.filter(e => e.projectId === x.id).length} gastos</div></div></div>`).join('');
+  openSheet('Proyectos', `
+    <div class="plist">${list}</div>
+    <label class="f" for="np">Crear proyecto nuevo</label>
+    <input id="np" class="inp" placeholder="Nombre del proyecto o viaje" autocomplete="off">
+    <div style="height:10px"></div>
+    <button class="btn" data-act="createproj">Crear y abrir</button>
+    ${p ? `<label class="f" for="rn">Nombre del proyecto actual</label>
+    <input id="rn" class="inp" value="${esc(p.name)}" autocomplete="off">
+    <div style="height:10px"></div>
+    <button class="btn sec" data-act="rename">Guardar nombre</button>
+    <button class="btn dng" data-act="delproj">Eliminar proyecto actual</button>` : ''}`);
+}
+async function createProject(name) {
+  name = (name || '').trim();
+  if (!name) return toast('Escribe un nombre');
+  const p = {id: uid(), name, received: 0, createdAt: Date.now()};
+  S.projects.push(p); await dbPut('projects', p); setCurrent(p.id);
+  S.tab = 'gastos'; S.filter = 'todos';
+  closeSheet(); render();
+}
+let delProjArmed = false;
+async function deleteProject() {
+  const p = cur(); if (!p) return;
+  if (!delProjArmed) {
+    delProjArmed = true;
+    const b = document.querySelector('[data-act="delproj"]');
+    if (b) b.textContent = 'Toca otra vez para eliminar con todos sus gastos';
+    return;
+  }
+  delProjArmed = false;
+  for (const e of S.expenses.filter(x => x.projectId === p.id)) await dbDel('expenses', e.id);
+  S.expenses = S.expenses.filter(x => x.projectId !== p.id);
+  await dbDel('projects', p.id);
+  S.projects = S.projects.filter(x => x.id !== p.id);
+  setCurrent(S.projects[0] ? S.projects[0].id : null);
+  closeSheet(); render(); toast('Proyecto eliminado');
+}
+function openReceived() {
+  const p = cur();
+  openSheet('Efectivo recibido', `
+    <div class="note">Anota cuánto dinero en efectivo te entregaron para este viaje. Así se calcula cuánto te queda por devolver.</div>
+    <label class="f" for="rv">Monto recibido (pesos)</label>
+    <input id="rv" class="inp big" inputmode="numeric" placeholder="$0" value="${p.received ? '$' + p.received.toLocaleString('es-CL') : ''}">
+    <div style="height:14px"></div>
+    <button class="btn" data-act="saverecv">Guardar</button>`);
+  const r = $('#rv');
+  r.addEventListener('input', () => { const d = r.value.replace(/\D/g, '').slice(0, 9); r.value = d ? '$' + Number(d).toLocaleString('es-CL') : ''; });
+}
+
+function openClosed() {
+  const p = cur(), t = totals(p.id);
+  openSheet('Proyecto cerrado', `
+    <div class="panel"><div class="kv"><span>Total a rendir (efectivo)</span><b style="color:var(--cash)">${clp(t.cash)}</b></div>
+    <div class="kv"><span>Pagado con tarjeta (informativo)</span><b style="color:var(--card)">${clp(t.card)}</b></div></div>
+    <div class="note" style="margin-bottom:12px">La rendición queda ordenada por fecha y hora.</div>
+    <button class="btn" data-act="xlsx">Descargar planilla Excel</button>
+    <button class="btn sec" data-act="html">Descargar informe con fotos</button>`);
+}
+const chron = pid => S.expenses.filter(e => e.projectId === pid)
+  .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.time || '') < (b.time || '') ? -1 : (a.time || '') > (b.time || '') ? 1 : a.createdAt - b.createdAt);
+
+/* ---------- exportación ---------- */
+async function saveFile(filename, data) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const types = {xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', html:'text/html', json:'application/json', csv:'text/csv'};
+  const blob = data instanceof Blob ? data : new Blob([data], {type: (types[ext] || 'application/octet-stream') + ';charset=utf-8'});
+  const cap = window.Capacitor;
+  if (cap && cap.isNativePlatform && cap.isNativePlatform()) {
+    try {
+      const {Filesystem, Share} = cap.Plugins;
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+      const w = await Filesystem.writeFile({path: filename, data: b64, directory: 'CACHE'});
+      await Share.share({title: filename, url: w.uri, dialogTitle: 'Guardar o enviar archivo'});
+      return;
+    } catch (e) {
+      if (!/cancel/i.test(String((e && (e.message || e.errorMessage)) || e))) toast('No se pudo guardar el archivo');
+      return;
+    }
+  }
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  try {
+    if (ios && navigator.canShare) {
+      const file = new File([blob], filename, {type: types[ext] || blob.type});
+      if (navigator.canShare({files: [file]})) { await navigator.share({files: [file], title: filename}); return toast('Archivo listo'); }
+    }
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    toast('Archivo descargado');
+  } catch (e) { if (!e || e.name !== 'AbortError') toast('No se pudo guardar el archivo'); }
+}
+function range(ex) {
+  const ds = ex.map(e => e.date).sort();
+  return ds.length ? (ds[0] === ds[ds.length - 1] ? fmtShort(ds[0]) : fmtShort(ds[0]) + ' al ' + fmtShort(ds[ds.length - 1])) : '';
+}
+function exportXlsx() {
+  const p = cur(), ex = chron(p.id), t = totals(p.id);
+  const ef = ex.filter(e => e.method === 'efectivo'), tj = ex.filter(e => e.method === 'tarjeta');
+  if (typeof XLSX === 'undefined') {
+    const rows = [['Fecha', 'Tipo', 'Detalle', 'Monto', 'Forma de pago']].concat(ex.map(e => [fmtShort(e.date), e.category, e.desc, e.amount, e.method === 'efectivo' ? 'Efectivo' : 'Tarjeta empresa']));
+    const csv = '\ufeff' + rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\n');
+    return saveFile('rendicion_' + slug(p.name) + '_' + stamp() + '.csv', csv);
+  }
+  const wb = XLSX.utils.book_new();
+  const recv = p.received || 0;
+  const res = [
+    ['Rendición de gastos de viaje'], [],
+    ['Proyecto', p.name], ['Período', range(ex)], ['Fecha de cierre', p.closedAt ? fmtShort(p.closedAt) : ''], [],
+    ['Concepto', 'Monto (CLP)'],
+    ['Total gastado en efectivo (a rendir)', t.cash],
+    ['Efectivo recibido', recv],
+    ['Saldo (recibido menos gastado)', recv - t.cash], [],
+    ['Pagado con tarjeta de la empresa (informativo, no se rinde)', t.card], [],
+    ['Efectivo a rendir por tipo de gasto', 'Monto (CLP)']
+  ];
+  Object.entries(t.cat).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => res.push([k, v]));
+  const ws0 = XLSX.utils.aoa_to_sheet(res);
+  ws0['!cols'] = [{wch: 58}, {wch: 18}];
+  fmtNums(ws0);
+  XLSX.utils.book_append_sheet(wb, ws0, 'Resumen');
+  const detail = (list, total) => {
+    const rows = [['N°', 'Fecha', 'Hora', 'Tipo', 'Detalle', 'Monto (CLP)', 'Comprobante']];
+    list.forEach((e, i) => rows.push([i + 1, fmtShort(e.date), e.time || '', e.category, e.desc, e.amount, e.photo ? 'Sí' : 'No']));
+    rows.push([]); rows.push(['', '', '', '', 'TOTAL', total, '']);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch: 5}, {wch: 12}, {wch: 8}, {wch: 17}, {wch: 34}, {wch: 15}, {wch: 13}];
+    fmtNums(ws, 5);
+    return ws;
+  };
+  XLSX.utils.book_append_sheet(wb, detail(ef, t.cash), 'A rendir (efectivo)');
+  XLSX.utils.book_append_sheet(wb, detail(tj, t.card), 'Tarjeta empresa');
+  const out = XLSX.write(wb, {bookType: 'xlsx', type: 'array'});
+  saveFile('rendicion_' + slug(p.name) + '_' + stamp() + '.xlsx', new Blob([out], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+}
+function fmtNums(ws, onlyCol) {
+  Object.keys(ws).forEach(k => {
+    if (k[0] === '!') return;
+    const c = ws[k];
+    if (c.t === 'n' && (onlyCol == null || XLSX.utils.decode_cell(k).c === onlyCol)) c.z = '"$"#,##0';
+  });
+}
+function exportHtml() {
+  const p = cur(), ex = chron(p.id), t = totals(p.id), recv = p.received || 0;
+  const ef = ex.filter(e => e.method === 'efectivo'), tj = ex.filter(e => e.method === 'tarjeta');
+  const table = (list, total, label) => `<table><thead><tr><th>N°</th><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Detalle</th><th class="r">Monto</th></tr></thead><tbody>${
+    list.map((e, i) => `<tr><td>${i + 1}</td><td>${fmtShort(e.date)}</td><td>${esc(e.time || '')}</td><td>${esc(e.category)}</td><td>${esc(e.desc)}</td><td class="r">${clp(e.amount)}</td></tr>`).join('') ||
+    '<tr><td colspan="6">Sin gastos</td></tr>'}</tbody><tfoot><tr><td colspan="5">${label}</td><td class="r">${clp(total)}</td></tr></tfoot></table>`;
+  const withPh = ex.filter(e => e.photo);
+  const html = `<!DOCTYPE html><html lang="es-CL"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rendición ${esc(p.name)}</title><style>
+body{font-family:Arial,Helvetica,sans-serif;color:#12202C;max-width:820px;margin:0 auto;padding:20px;font-size:14px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:26px 0 8px}
+table{width:100%;border-collapse:collapse}th,td{border:1px solid #c9d1d9;padding:6px 8px;text-align:left}th{background:#eef2f5}
+.r{text-align:right;white-space:nowrap}tfoot td{font-weight:bold;background:#eef2f5}
+.big{font-size:20px;font-weight:bold;color:#0A6B4D}.muted{color:#5B6B79}
+.fotos{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.fotos figure{margin:0;break-inside:avoid}
+.fotos img{width:100%;border:1px solid #c9d1d9}.fotos figcaption{font-size:12px;color:#5B6B79;margin-top:3px}
+@media print{body{padding:0}}
+</style></head><body>
+<h1>Rendición de gastos de viaje</h1>
+<div class="muted">Proyecto: ${esc(p.name)}${ex.length ? ' · Período: ' + range(ex) : ''}${p.closedAt ? ' · Cierre: ' + fmtShort(p.closedAt) : ''}</div>
+<h2>Resumen</h2>
+<table><tbody>
+<tr><td>Total gastado en efectivo (a rendir)</td><td class="r big">${clp(t.cash)}</td></tr>
+<tr><td>Efectivo recibido</td><td class="r">${clp(recv)}</td></tr>
+<tr><td>Saldo (recibido menos gastado)</td><td class="r">${clp(recv - t.cash)}</td></tr>
+<tr><td>Pagado con tarjeta de la empresa (informativo, no se rinde)</td><td class="r">${clp(t.card)}</td></tr>
+</tbody></table>
+<h2>Gastos en efectivo (a rendir)</h2>${table(ef, t.cash, 'Total a rendir')}
+<h2>Pagos con tarjeta de la empresa (informativo)</h2>${table(tj, t.card, 'Total con tarjeta')}
+${withPh.length ? `<h2>Comprobantes</h2><div class="fotos">${withPh.map(e => `<figure><img src="${e.photo}" alt=""><figcaption>${fmtShort(e.date)} ${esc(e.time || '')} · ${esc(e.category)} · ${clp(e.amount)} · ${e.method === 'efectivo' ? 'Efectivo' : 'Tarjeta empresa'}</figcaption></figure>`).join('')}</div>` : ''}
+</body></html>`;
+  saveFile('informe_' + slug(p.name) + '_' + stamp() + '.html', html);
+}
+function backup() {
+  const data = JSON.stringify({version: 1, projects: S.projects, expenses: S.expenses});
+  saveFile('respaldo_gastos_viaje_' + stamp() + '.json', data);
+}
+async function restoreFrom(file) {
+  try {
+    const d = JSON.parse(await file.text());
+    if (!Array.isArray(d.projects) || !Array.isArray(d.expenses)) throw new Error('fmt');
+    for (const p of d.projects) { if (!S.projects.find(x => x.id === p.id)) { S.projects.push(p); } await dbPut('projects', p); }
+    for (const e of d.expenses) { const i = S.expenses.findIndex(x => x.id === e.id); if (i >= 0) S.expenses[i] = e; else S.expenses.push(e); await dbPut('expenses', e); }
+    if (!cur() && S.projects[0]) setCurrent(S.projects[0].id);
+    render(); toast('Respaldo cargado');
+  } catch (e) { toast('El archivo no es un respaldo válido'); }
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act]'); if (!el) return;
+  const act = el.dataset.act, v = el.dataset.v, id = el.dataset.id;
+  switch (act) {
+    case 'new': openExpense(); break;
+    case 'edit': openExpense(id); break;
+    case 'close': closeSheet(); break;
+    case 'tab': S.tab = v; closeArmed = false; render(); break;
+    case 'filter': S.filter = v; render(); break;
+    case 'method': draft.method = v; renderForm(); break;
+    case 'cat': draft.category = v; renderForm(); break;
+    case 'cam': $('#in-cam').click(); break;
+    case 'gal': $('#in-gal').click(); break;
+    case 'rmphoto': draft.photo = null; renderForm(); break;
+    case 'save': saveExpense(); break;
+    case 'del':
+      if (!delArmed) { delArmed = true; el.textContent = 'Toca otra vez para borrar'; break; }
+      await dbDel('expenses', draft.id);
+      S.expenses = S.expenses.filter(x => x.id !== draft.id);
+      closeSheet(); render(); toast('Gasto borrado'); break;
+    case 'photo': {
+      ev.stopPropagation();
+      const e = S.expenses.find(x => x.id === id);
+      if (e && e.photo) { $('#viewer img').src = e.photo; $('#viewer').classList.add('on'); }
+      break;
+    }
+    case 'closeviewer': $('#viewer').classList.remove('on'); break;
+    case 'projects': delProjArmed = false; openProjects(); break;
+    case 'pick': setCurrent(id); S.tab = 'gastos'; S.filter = 'todos'; closeSheet(); render(); break;
+    case 'createproj': createProject($('#np').value); break;
+    case 'createproj0': createProject($('#np0').value); break;
+    case 'rename': {
+      const n = $('#rn').value.trim(); if (!n) return toast('Escribe un nombre');
+      const p = cur(); p.name = n; await dbPut('projects', p); closeSheet(); render(); break;
+    }
+    case 'delproj': deleteProject(); break;
+    case 'recv': openReceived(); break;
+    case 'saverecv': {
+      const p = cur(); p.received = parseInt($('#rv').value.replace(/\D/g, '') || '0', 10);
+      await dbPut('projects', p); closeSheet(); render(); break;
+    }
+    case 'none': break;
+    case 'closeproj': {
+      if (!closeArmed) { closeArmed = true; render(); break; }
+      closeArmed = false;
+      const p = cur(); p.closed = true; p.closedAt = todayStr(); await dbPut('projects', p);
+      render(); openClosed(); break;
+    }
+    case 'reopen': { const p = cur(); p.closed = false; p.closedAt = null; await dbPut('projects', p); render(); toast('Proyecto reabierto'); break; }
+    case 'newproj': openProjects(); break;
+    case 'xlsx': exportXlsx(); break;
+    case 'html': exportHtml(); break;
+    case 'backup': backup(); break;
+    case 'restore': { const r = $('#rf'); r.onchange = () => { if (r.files[0]) restoreFrom(r.files[0]); }; r.click(); break; }
+  }
+});
+document.addEventListener('keydown', ev => {
+  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('.row[role="button"]')) { ev.preventDefault(); ev.target.click(); }
+});
+init();
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+if ('serviceWorker' in navigator && !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
+</body>
+</html>

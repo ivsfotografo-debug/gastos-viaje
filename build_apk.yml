@@ -1,0 +1,54 @@
+name: Compilar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Instalar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Crear proyecto Android
+        run: npx cap add android
+
+      - name: Permiso de camara
+        run: |
+          sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA" />\n    <application|' android/app/src/main/AndroidManifest.xml
+
+      - name: Icono de la app
+        run: |
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          cp -r resources/res/. android/app/src/main/res/
+
+      - name: Copiar la app y plugins
+        run: npx cap sync android
+
+      - name: Compilar APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastos_viaje_apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

@@ -1,0 +1,23 @@
+Gastos de viaje - proyecto para compilar el APK con GitHub (gratis)
+
+PASOS
+1. Crea una cuenta en github.com (si no tienes) y entra.
+2. Arriba a la derecha toca "+" > "New repository". Ponle un nombre, por ejemplo gastos-viaje, deja "Private" o "Public" y crea el repositorio.
+3. En la pagina del repositorio nuevo toca "uploading an existing file".
+4. Descomprime este zip en el computador y arrastra TODO su contenido (las carpetas www, resources, .github y los archivos sueltos). Si el computador oculta la carpeta .github, ver "Si falta .github" mas abajo.
+5. Abajo toca "Commit changes".
+6. Entra a la pestana "Actions". Si pregunta, activa los workflows. Debe partir solo una ejecucion llamada "Compilar APK". Si no parte, toca "Compilar APK" a la izquierda y luego "Run workflow".
+7. Espera entre 5 y 10 minutos hasta que aparezca un check verde.
+8. Abre esa ejecucion y, abajo en "Artifacts", descarga gastos_viaje_apk. Viene en un zip con el archivo app-debug.apk dentro.
+9. Pasa el APK al celular Android y abrelo. Android pedira permitir instalar apps de este origen: aceptalo.
+
+SI FALTA .github
+En el repositorio toca "Add file" > "Create new file", escribe como nombre .github/workflows/build_apk.yml y pega el contenido del archivo build_apk.yml que viene suelto en este zip.
+
+SI LA COMPILACION FALLA (cruz roja)
+Abre la ejecucion, entra al paso que salio en rojo y copia el mensaje de error. Con eso se corrige.
+
+USO
+- Los gastos se guardan en el telefono. Descarga el respaldo (pestana Informe) de vez en cuando.
+- Los archivos (Excel, informe con fotos, respaldo) se abren con el menu de compartir de Android: desde ahi puedes guardarlos en Drive, enviarlos por correo o WhatsApp.
+- Si desinstalas la app se pierden los datos, haz un respaldo antes.
