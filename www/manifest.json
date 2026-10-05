@@ -1,7 +1,7 @@
 {
-  "name": "Gastos de viaje",
-  "short_name": "Gastos viaje",
-  "description": "Registro de gastos de viaje y rendición en efectivo",
+  "name": "Rendición de gastos",
+  "short_name": "Rendición",
+  "description": "Anota gastos en el momento y rinde sin enredos",
   "lang": "es-CL",
   "start_url": "./index.html",
   "scope": "./",
@@ -10,8 +10,21 @@
   "background_color": "#E9EDF1",
   "theme_color": "#0A6B4D",
   "icons": [
-    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
-    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
-    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
