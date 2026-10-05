@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Rendición de gastos">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="fonts.css">
-<script src="xlsx.full.min.js"></script>
+<script src="exceljs.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -142,6 +142,7 @@ label.f{display:block;font-size:14px;font-weight:600;color:var(--muted);margin:1
 .saldo.ok{background:var(--cash-soft);color:var(--cash)}
 .saldo.owe{background:var(--owe-soft);color:var(--owe)}
 .gear{flex:none;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center}
+.logo-prev img{max-width:100%;max-height:90px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:10px;display:block}
 .chk{display:flex;gap:10px;align-items:center;margin-top:18px;font-weight:600}
 .chk input{width:22px;height:22px;accent-color:var(--cash)}
 .appname{font-size:12.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);padding:6px 2px 0}
@@ -193,7 +194,7 @@ function datosRows(p) {
   if (p.orderNo) o.push(['Orden de trabajo', p.orderNo]);
   return o;
 }
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clp = n => '$' + Math.round(n || 0).toLocaleString('es-CL');
@@ -566,9 +567,43 @@ function openSettings() {
     <input id="st-cc" class="inp" value="${esc(p.costCenter || '')}" autocomplete="off">
     <label class="f" for="st-ot">Orden de trabajo o N° de proyecto</label>
     <input id="st-ot" class="inp" value="${esc(p.orderNo || '')}" autocomplete="off">` : ''}
+    <label class="f">Logo de la empresa (opcional)</label>
+    ${r.logo ? `<div class="logo-prev"><img src="${r.logo}" alt="Logo"></div>
+    <div class="two"><button class="btn sec" data-act="logopick">Cambiar</button><button class="btn dng" data-act="logodel" style="margin-top:0">Quitar</button></div>` : `<button class="btn sec" data-act="logopick">Elegir logo</button>`}
+    <input type="file" id="st-logo-in" accept="image/*" hidden>
+    <div class="note" style="margin-top:8px">Sale arriba a la derecha del PDF y en la planilla Excel. Funciona mejor en PNG con fondo transparente.</div>
     <label class="chk"><input type="checkbox" id="st-sign" ${r.signatures ? 'checked' : ''}> Agregar líneas de firma al final del PDF</label>
     <div style="height:16px"></div>
     <button class="btn" data-act="savesettings">Guardar</button>`);
+  const li = $('#st-logo-in');
+  if (li) li.addEventListener('change', async () => {
+    const f = li.files && li.files[0]; if (!f) return;
+    readSettings();
+    try { Object.assign(S.profile, await processLogo(f)); await dbPut('meta', {k: 'profile', v: S.profile}); openSettings(); toast('Logo cargado'); }
+    catch (e) { openSettings(); toast('No se pudo leer la imagen'); }
+  });
+}
+function readSettings() {
+  const v = id => ($(id) ? $(id).value.trim() : '');
+  Object.assign(S.profile, {name: v('#st-name'), rut: v('#st-rut'), role: v('#st-role'), company: v('#st-co'), signatures: $('#st-sign') ? $('#st-sign').checked : S.profile.signatures});
+  const p = cur();
+  if (p && $('#st-cc')) { p.costCenter = v('#st-cc'); p.orderNo = v('#st-ot'); }
+}
+function processLogo(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const r = Math.min(1, 600 / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * r)), h = Math.max(1, Math.round(img.height * r));
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const ctx = c.getContext('2d'), jpeg = /jpe?g/i.test(file.type);
+      if (jpeg) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); }
+      ctx.drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url);
+      res({logo: c.toDataURL(jpeg ? 'image/jpeg' : 'image/png', 0.9), logoW: w, logoH: h});
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('img')); };
+    img.src = url;
+  });
 }
 
 function openClosed() {
@@ -618,58 +653,117 @@ function range(ex) {
   const ds = ex.map(e => e.date).sort();
   return ds.length ? (ds[0] === ds[ds.length - 1] ? fmtShort(ds[0]) : fmtShort(ds[0]) + ' al ' + fmtShort(ds[ds.length - 1])) : '';
 }
-function exportXlsx() {
-  const p = cur(), ex = chron(p.id), t = totals(p.id);
+async function exportXlsx() {
+  const p = cur(), ex = chron(p.id), t = totals(p.id), recv = recvTotal(p), sal = recv - t.cash;
   const ef = ex.filter(e => e.method === 'efectivo'), tj = ex.filter(e => e.method === 'tarjeta');
-  if (typeof XLSX === 'undefined') {
-    const rows = [['Fecha', 'Tipo', 'Detalle', 'Monto', 'Forma de pago']].concat(ex.map(e => [fmtShort(e.date), e.category, e.desc, e.amount, e.method === 'efectivo' ? 'Efectivo' : 'Tarjeta empresa']));
+  const fname = 'rendicion_' + slug(p.name) + '_' + stamp();
+  if (typeof ExcelJS === 'undefined') {
+    const rows = [['Fecha', 'Hora', 'Tipo', 'Detalle', 'Monto', 'Forma de pago']].concat(ex.map(e => [fmtShort(e.date), e.time || '', e.category, e.desc, e.amount, e.method === 'efectivo' ? 'Efectivo' : 'Tarjeta empresa']));
     const csv = '\ufeff' + rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\n');
-    return saveFile('rendicion_' + slug(p.name) + '_' + stamp() + '.csv', csv);
+    return saveFile(fname + '.csv', csv);
   }
-  const wb = XLSX.utils.book_new();
-  const recv = recvTotal(p);
-  const res = [
-    ['Rendición de gastos'], [],
-    ['Proyecto', p.name], ['Período', range(ex)], ['Fecha de cierre', p.closedAt ? fmtShort(p.closedAt) : ''], ...datosRows(p), [],
-    ['Concepto', 'Monto (CLP)'],
-    ['Total gastado en efectivo (a rendir)', t.cash],
-    ['Dinero recibido (total)', recv],
-    [recv - t.cash >= 0 ? 'Saldo por devolver a la empresa' : 'Saldo a favor del rendidor (la empresa debe reintegrar)', Math.abs(recv - t.cash)], [],
-    ['Pagado con tarjeta de la empresa (informativo, no se rinde)', t.card], [],
-    ['Efectivo a rendir por tipo de gasto', 'Monto (CLP)']
-  ];
-  Object.entries(t.cat).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => res.push([k, v]));
-  const ws0 = XLSX.utils.aoa_to_sheet(res);
-  ws0['!cols'] = [{wch: 58}, {wch: 18}];
-  fmtNums(ws0);
-  XLSX.utils.book_append_sheet(wb, ws0, 'Resumen');
-  const detail = (list, total) => {
-    const rows = [['N°', 'Fecha', 'Hora', 'Tipo', 'Detalle', 'Monto (CLP)', 'Comprobante']];
-    list.forEach((e, i) => rows.push([i + 1, fmtShort(e.date), e.time || '', e.category, e.desc, e.amount, e.photo ? 'Sí' : 'No']));
-    rows.push([]); rows.push(['', '', '', '', 'TOTAL', total, '']);
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch: 5}, {wch: 12}, {wch: 8}, {wch: 17}, {wch: 34}, {wch: 15}, {wch: 13}];
-    fmtNums(ws, 5);
-    return ws;
-  };
-  XLSX.utils.book_append_sheet(wb, detail(ef, t.cash), 'A rendir (efectivo)');
-  XLSX.utils.book_append_sheet(wb, detail(tj, t.card), 'Tarjeta empresa');
-  const dr = [['N°', 'Fecha', 'Hora', 'Monto (CLP)']];
-  (p.deliveries || []).forEach((d, i) => dr.push([i + 1, fmtShort(d.date), d.time || '', d.amount]));
-  dr.push([]); dr.push(['', '', 'TOTAL', recv]);
-  const wsd = XLSX.utils.aoa_to_sheet(dr);
-  wsd['!cols'] = [{wch: 5}, {wch: 12}, {wch: 8}, {wch: 16}];
-  fmtNums(wsd, 3);
-  XLSX.utils.book_append_sheet(wb, wsd, 'Dinero recibido');
-  const out = XLSX.write(wb, {bookType: 'xlsx', type: 'array'});
-  saveFile('rendicion_' + slug(p.name) + '_' + stamp() + '.xlsx', new Blob([out], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-}
-function fmtNums(ws, onlyCol) {
-  Object.keys(ws).forEach(k => {
-    if (k[0] === '!') return;
-    const c = ws[k];
-    if (c.t === 'n' && (onlyCol == null || XLSX.utils.decode_cell(k).c === onlyCol)) c.z = '"$"#,##0';
-  });
+  try {
+    const GREEN = 'FF0A6B4D', GSOFT = 'FFDDF1E8', GREY = 'FFEEF2F5', BLUE = 'FF2D58A6', BSOFT = 'FFE1EAF8', INK = 'FF12202C', LINE = 'FFC9D1D9', OWE = 'FFFCE8E6', ZEBRA = 'FFF6F8FA';
+    const thin = {style: 'thin', color: {argb: LINE}}, box = {top: thin, left: thin, bottom: thin, right: thin};
+    const money = '"$"#,##0';
+    const fill = argb => ({type: 'pattern', pattern: 'solid', fgColor: {argb}});
+    const setup = (w, orient) => { w.pageSetup = {orientation: orient, paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: {left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3}}; };
+    const wb = new ExcelJS.Workbook();
+    wb.creator = CREDITOS; wb.created = new Date();
+
+    const ws = wb.addWorksheet('Resumen', {views: [{showGridLines: false}]});
+    ws.columns = [{width: 50}, {width: 20}, {width: 20}];
+    let r = 1;
+    if (S.profile.logo) {
+      const id = wb.addImage({base64: S.profile.logo, extension: S.profile.logo.indexOf('image/png') > -1 ? 'png' : 'jpeg'});
+      let lh = 56, lw = Math.round(S.profile.logoW * lh / S.profile.logoH);
+      if (lw > 240) { lw = 240; lh = Math.round(S.profile.logoH * lw / S.profile.logoW); }
+      ws.getRow(1).height = Math.max(46, Math.round(lh * 0.75) + 6);
+      ws.addImage(id, {tl: {col: 0.05, row: 0.08}, ext: {width: lw, height: lh}});
+      r = 2;
+    }
+    ws.mergeCells(r, 1, r, 3);
+    const tc = ws.getCell(r, 1);
+    tc.value = 'Rendición de gastos'; tc.font = {bold: true, size: 16, color: {argb: 'FFFFFFFF'}};
+    tc.fill = fill(GREEN); tc.alignment = {vertical: 'middle', indent: 1};
+    ws.getRow(r).height = 32; r++;
+    const line = (label, value, o = {}) => {
+      ws.mergeCells(r, 2, r, 3);
+      const a = ws.getCell(r, 1), b = ws.getCell(r, 2), c3 = ws.getCell(r, 3);
+      a.value = label; b.value = value;
+      [a, b, c3].forEach(x => { x.border = box; });
+      a.font = {bold: !!o.boldLabel, color: {argb: o.color || INK}};
+      b.font = {bold: !!o.bold, color: {argb: o.color || INK}};
+      if (o.labelFill) a.fill = fill(o.labelFill);
+      if (o.fill) { a.fill = fill(o.fill); b.fill = fill(o.fill); c3.fill = fill(o.fill); }
+      if (typeof value === 'number') b.numFmt = money;
+      b.alignment = {horizontal: typeof value === 'number' ? 'right' : 'left', vertical: 'middle', indent: 1};
+      a.alignment = {vertical: 'middle', indent: 1, wrapText: true};
+      ws.getRow(r).height = 21; r++;
+    };
+    const head = (a, b) => {
+      ws.mergeCells(r, 2, r, 3);
+      [1, 2, 3].forEach(n => { const x = ws.getCell(r, n); x.fill = fill(GREEN); x.font = {bold: true, color: {argb: 'FFFFFFFF'}}; x.border = box; });
+      ws.getCell(r, 1).value = a; ws.getCell(r, 2).value = b;
+      ws.getCell(r, 1).alignment = {vertical: 'middle', indent: 1};
+      ws.getCell(r, 2).alignment = {horizontal: 'right', vertical: 'middle', indent: 1};
+      ws.getRow(r).height = 22; r++;
+    };
+    line('Proyecto', p.name, {boldLabel: true, labelFill: GREY});
+    line('Período', range(ex), {boldLabel: true, labelFill: GREY});
+    if (p.closedAt) line('Fecha de cierre', fmtShort(p.closedAt), {boldLabel: true, labelFill: GREY});
+    datosRows(p).forEach(([k, v]) => line(k, v, {boldLabel: true, labelFill: GREY}));
+    r++;
+    head('Concepto', 'Monto (CLP)');
+    line('Total gastado en efectivo (a rendir)', t.cash, {bold: true, boldLabel: true, fill: GSOFT, color: GREEN});
+    line('Dinero recibido (total)', recv);
+    line(sal >= 0 ? 'Saldo por devolver a la empresa' : 'Saldo a favor del rendidor (la empresa debe reintegrar)', Math.abs(sal), {bold: true, boldLabel: true, fill: sal < 0 ? OWE : undefined, color: sal < 0 ? 'FFB3261E' : undefined});
+    line('Pagado con tarjeta de la empresa (informativo, no se rinde)', t.card, {fill: BSOFT, color: 'FF1F3F7A'});
+    r++;
+    head('Efectivo a rendir por tipo de gasto', 'Monto (CLP)');
+    Object.entries(t.cat).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => line(k, v));
+    line('Total', t.cash, {bold: true, boldLabel: true, fill: GSOFT});
+    setup(ws, 'portrait');
+
+    const detail = (name, list, total, color) => {
+      const w = wb.addWorksheet(name, {views: [{state: 'frozen', ySplit: 1, showGridLines: false}]});
+      w.columns = [{width: 6}, {width: 13}, {width: 8}, {width: 18}, {width: 38}, {width: 16}, {width: 14}];
+      const h = w.addRow(['N°', 'Fecha', 'Hora', 'Tipo', 'Detalle', 'Monto (CLP)', 'Comprobante']);
+      h.height = 23;
+      h.eachCell(c => { c.fill = fill(color); c.font = {bold: true, color: {argb: 'FFFFFFFF'}}; c.border = box; c.alignment = {vertical: 'middle', horizontal: c.col === 6 ? 'right' : 'left', indent: 1}; });
+      list.forEach((e, i) => {
+        const row = w.addRow([i + 1, fmtShort(e.date), e.time || '', e.category, e.desc || '', e.amount, e.photo ? 'Sí' : 'No']);
+        row.height = 19;
+        row.eachCell({includeEmpty: true}, (c, n) => { c.border = box; c.font = {color: {argb: INK}}; c.alignment = {vertical: 'middle', horizontal: n === 6 ? 'right' : 'left', indent: 1}; if (i % 2) c.fill = fill(ZEBRA); if (n === 6) c.numFmt = money; });
+      });
+      const tr = w.addRow(['', '', '', '', 'TOTAL', total, '']);
+      tr.height = 22;
+      tr.eachCell({includeEmpty: true}, (c, n) => { c.fill = fill(GSOFT); c.font = {bold: true, color: {argb: INK}}; c.border = box; c.alignment = {vertical: 'middle', horizontal: n >= 5 && n <= 6 ? 'right' : 'left', indent: 1}; if (n === 6) c.numFmt = money; });
+      setup(w, 'landscape');
+    };
+    detail('A rendir (efectivo)', ef, t.cash, GREEN);
+    detail('Tarjeta empresa', tj, t.card, BLUE);
+
+    const wd = wb.addWorksheet('Dinero recibido', {views: [{state: 'frozen', ySplit: 1, showGridLines: false}]});
+    wd.columns = [{width: 6}, {width: 13}, {width: 8}, {width: 18}];
+    const hd = wd.addRow(['N°', 'Fecha', 'Hora', 'Monto (CLP)']);
+    hd.height = 23;
+    hd.eachCell(c => { c.fill = fill(INK); c.font = {bold: true, color: {argb: 'FFFFFFFF'}}; c.border = box; c.alignment = {vertical: 'middle', horizontal: c.col === 4 ? 'right' : 'left', indent: 1}; });
+    (p.deliveries || []).forEach((d, i) => {
+      const row = wd.addRow([i + 1, fmtShort(d.date), d.time || '', d.amount]);
+      row.height = 19;
+      row.eachCell({includeEmpty: true}, (c, n) => { c.border = box; c.alignment = {vertical: 'middle', horizontal: n === 4 ? 'right' : 'left', indent: 1}; if (i % 2) c.fill = fill(ZEBRA); if (n === 4) c.numFmt = money; });
+    });
+    const trd = wd.addRow(['', '', 'TOTAL', recv]);
+    trd.height = 22;
+    trd.eachCell({includeEmpty: true}, (c, n) => { c.fill = fill(GSOFT); c.font = {bold: true, color: {argb: INK}}; c.border = box; c.alignment = {vertical: 'middle', horizontal: n >= 3 ? 'right' : 'left', indent: 1}; if (n === 4) c.numFmt = money; });
+    setup(wd, 'portrait');
+
+    const buf = await wb.xlsx.writeBuffer();
+    saveFile(fname + '.xlsx', new Blob([buf], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  } catch (e) {
+    toast('No se pudo generar la planilla');
+  }
 }
 function jpegSize(dataUrl) {
   try {
@@ -694,6 +788,12 @@ function exportPdf() {
   const M = 14, W = 210, H = 297, green = [10, 107, 77], blue = [45, 88, 166];
   doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(18, 32, 44);
   doc.text('Rendición de gastos', M, 18);
+  if (S.profile.logo) {
+    try {
+      const lw = S.profile.logoW, lh = S.profile.logoH, rr = Math.min(42 / lw, 18 / lh), w = lw * rr, h = lh * rr;
+      doc.addImage(S.profile.logo, S.profile.logo.indexOf('image/png') > -1 ? 'PNG' : 'JPEG', W - M - w, 10, w, h);
+    } catch (e) {}
+  }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(91, 107, 121);
   doc.text('Proyecto: ' + p.name, M, 25);
   let sub = ex.length ? 'Período: ' + range(ex) : '';
@@ -868,12 +968,15 @@ document.addEventListener('click', async ev => {
     }
     case 'settings': openSettings(); break;
     case 'savesettings': {
-      const v = id => ($(id) ? $(id).value.trim() : '');
-      S.profile = {name: v('#st-name'), rut: v('#st-rut'), role: v('#st-role'), company: v('#st-co'), signatures: $('#st-sign').checked};
+      readSettings();
       await dbPut('meta', {k: 'profile', v: S.profile});
-      const p = cur();
-      if (p && $('#st-cc')) { p.costCenter = v('#st-cc'); p.orderNo = v('#st-ot'); await dbPut('projects', p); }
+      const p = cur(); if (p) await dbPut('projects', p);
       closeSheet(); render(); toast('Datos guardados'); break;
+    }
+    case 'logopick': { const li = $('#st-logo-in'); if (li) li.click(); break; }
+    case 'logodel': {
+      readSettings(); delete S.profile.logo; delete S.profile.logoW; delete S.profile.logoH;
+      await dbPut('meta', {k: 'profile', v: S.profile}); openSettings(); break;
     }
     case 'closeproj': {
       if (!closeArmed) { closeArmed = true; render(); break; }
@@ -897,7 +1000,7 @@ init();
   const sp = $('#splash'); if (!sp) return;
   $('#sp-cred').innerHTML = 'Desarrollada por<br><b style="font-weight:600">' + esc(CREDITOS) + '</b>'; $('#sp-ver').textContent = 'Versión ' + APP_VERSION;
   const hide = () => { if (sp.classList.contains('off')) return; sp.classList.add('off'); setTimeout(() => sp.remove(), 600); };
-  sp.addEventListener('click', hide); setTimeout(hide, 2300);
+  sp.addEventListener('click', hide); setTimeout(hide, 4000);
 })();
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && !(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform())) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
